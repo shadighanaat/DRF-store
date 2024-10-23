@@ -8,6 +8,11 @@ faker = "*"
 factory-boy = "*"
 pytz = "*"
 djangorestframework = "*"
+django = "*"
+django-debug-toolbar = "*"
+mysqlclient = "*"
+drf-nested-routers = "*"
+django-filter = "*"
 
 [dev-packages]
 
