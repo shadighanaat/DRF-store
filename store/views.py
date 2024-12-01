@@ -2,17 +2,19 @@ from django.shortcuts import get_object_or_404
 from rest_framework.response import Response
 
 from store.paginations import DefaultPagination
+from store.permissions import SendPrivateEmailToCustomerPermission
 from .models import CartItem, Product, Customer, OrderItem, Order, Category, Customer, Comment, Cart
 from rest_framework.filters import OrderingFilter, SearchFilter
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import Count, Avg, F, Func, Value
-from .serializers import AddCartItemSerializer, CartItemSerializer, ProductSerializer, CategorySerializer, CommentSerializer, CartSerializer, UpdateCartItemSerializer
+from .serializers import AddCartItemSerializer, CartItemSerializer, CustomerSerializer, ProductSerializer, CategorySerializer, CommentSerializer, CartSerializer, UpdateCartItemSerializer
 from rest_framework import status # type: ignore
 from rest_framework.viewsets import GenericViewSet
 from rest_framework.mixins import CreateModelMixin, RetrieveModelMixin, DestroyModelMixin
 from rest_framework.viewsets import ModelViewSet # type: ignore
 from .filters import ProductFilter
-
+from rest_framework.permissions import IsAdminUser, IsAuthenticated
+from rest_framework.decorators import action
 
 class CategoryViewSet(ModelViewSet):
     serializer_class = CategorySerializer
@@ -77,3 +79,27 @@ class CartViewSet(CreateModelMixin,
                    GenericViewSet):
     serializer_class = CartSerializer
     queryset = Cart.objects.prefetch_related('items__product').all()
+
+
+class CustomerViewSet(ModelViewSet):
+    serializer_class = CustomerSerializer
+    queryset = Customer.objects.all()
+    permission_classes = [IsAdminUser]
+
+    @action(detail=False, methods=['GET', 'PUT'], permission_classes=[IsAuthenticated])
+    def me(self, request):
+        user_id = request.user.id
+        customer = Customer.objects.get(user_id=user_id)
+        if request.method == 'GET':
+            serializer = CustomerSerializer(customer)
+            return Response(serializer.data)
+        elif request.method == 'PUT':
+            serializer = CustomerSerializer(customer, data=request.data)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            return Response(serializer.data)
+
+    @action(detail=True, permission_classes=[SendPrivateEmailToCustomerPermission])
+    def send_private_email(self, request, pk):
+        return Response(f'Sending email to customer {pk=}')
+
