@@ -36,14 +36,13 @@ class Product(models.Model):
 
 
 class Customer(models.Model):
-    first_name = models.CharField(max_length=155)
-    last_name = models.CharField(max_length=155)
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.PROTECT,)
     email = models.EmailField()
     phone_number = models.CharField(max_length=255)
     birth_date = models.DateField(null=True, blank=True)
 
     def __str__(self):
-        return f'{self.first_name} | {self.last_name}'
+        return f'{self.user.first_name} {self.user.last_name}'
     
     class Meta:
         permissions = [
