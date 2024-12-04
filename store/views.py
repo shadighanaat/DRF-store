@@ -1,20 +1,23 @@
 from django.shortcuts import get_object_or_404
-from rest_framework.response import Response
-
-from store.paginations import DefaultPagination
-from store.permissions import SendPrivateEmailToCustomerPermission
-from .models import CartItem, Product, Customer, OrderItem, Order, Category, Customer, Comment, Cart
-from rest_framework.filters import OrderingFilter, SearchFilter
 from django_filters.rest_framework import DjangoFilterBackend
-from django.db.models import Count, Avg, F, Func, Value
-from .serializers import AddCartItemSerializer, CartItemSerializer, CustomerSerializer, ProductSerializer, CategorySerializer, CommentSerializer, CartSerializer, UpdateCartItemSerializer
+from django.db.models import Prefetch
+
+from rest_framework.response import Response
+from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework import status # type: ignore
 from rest_framework.viewsets import GenericViewSet
 from rest_framework.mixins import CreateModelMixin, RetrieveModelMixin, DestroyModelMixin
 from rest_framework.viewsets import ModelViewSet # type: ignore
-from .filters import ProductFilter
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.decorators import action
+
+from store.paginations import DefaultPagination
+from store.permissions import SendPrivateEmailToCustomerPermission
+from .models import CartItem, Product, Customer, OrderItem, Order, Category, Customer, Comment, Cart
+from .serializers import AddCartItemSerializer, CartItemSerializer, CustomerSerializer, OrderCreateSerializer, OrderForAdminSerializer, OrderSerializer, OrderUpdateSerializer, ProductSerializer, CategorySerializer, CommentSerializer, CartSerializer, UpdateCartItemSerializer
+
+from .filters import ProductFilter
+from .signals import order_created
 
 class CategoryViewSet(ModelViewSet):
     serializer_class = CategorySerializer
@@ -103,3 +106,52 @@ class CustomerViewSet(ModelViewSet):
     def send_private_email(self, request, pk):
         return Response(f'Sending email to customer {pk=}')
 
+
+
+class OrderViewSet(ModelViewSet):
+    http_method_names = ['get', 'post', 'patch', 'delete', 'options', 'head']
+
+    def get_permissions(self):
+        if self.request.method in ['PATCH', 'DELETE']:
+            return [IsAdminUser()]
+        return [IsAuthenticated()]
+    
+    def get_queryset(self):
+        queryset = Order.objects.prefetch_related(
+            Prefetch(
+                'items',
+                queryset=OrderItem.objects.select_related('product'),
+            )
+        ).select_related('customer__user').all()
+
+        user = self.request.user
+
+        if user.is_staff:
+            return queryset
+        
+        return queryset.filter(customer__user_id=user.id)
+
+    def get_serializer_class(self):
+        if self.request.method == 'POST':
+            return OrderCreateSerializer
+        
+        if self.request.method == 'PATCH':
+            return OrderUpdateSerializer
+
+        if self.request.user.is_staff:
+            return OrderForAdminSerializer
+        return OrderSerializer
+
+    
+    def create(self, request, *args, **kwargs):
+        create_order_serializer = OrderCreateSerializer(
+            data=request.data,
+            context={'user_id': self.request.user.id},
+        )
+        create_order_serializer.is_valid(raise_exception=True)
+        created_order = create_order_serializer.save()
+
+        order_created.send_robust(self.__class__, order=created_order)
+
+        serializer = OrderSerializer(created_order)
+        return Response(serializer.data)
